@@ -7,75 +7,140 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         .pitch {
-            background-color: #2f855a; /* Grass Green */
+            background-color: #2f855a;
             border: 2px solid white;
             position: relative;
+            cursor: crosshair;
         }
-        .pitch-line {
-            stroke: white;
-            stroke-width: 2;
-            fill: none;
-        }
+        .pitch-line { stroke: white; stroke-width: 2; fill: none; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
     </style>
 </head>
 <body class="bg-gray-900 text-white font-sans h-screen flex flex-col">
 
     <!-- HEADER -->
-    <header class="bg-gray-800 p-4 border-b border-gray-700 flex justify-between items-center">
-        <h1 class="text-xl font-bold text-green-400">Play2Vec <span class="text-white">Pattern Visualizer</span></h1>
+    <header class="bg-gray-800 p-4 border-b border-gray-700 flex justify-between items-center shadow-lg z-10">
+        <div class="flex items-center gap-3">
+             <div class="bg-green-500 p-2 rounded-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+             </div>
+             <h1 class="text-xl font-bold text-gray-100">Play2Vec <span class="text-green-400 font-light">Tactical Engine</span></h1>
+        </div>
+
         <div>
-            <label class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded cursor-pointer transition">
+            <label class="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded-lg cursor-pointer transition shadow flex items-center gap-2 font-medium">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
                 Upload Match JSON
                 <input type="file" id="fileInput" class="hidden" accept=".json">
             </label>
-            <span id="status" class="ml-3 text-gray-400 text-sm">Waiting for file...</span>
+            <div id="status" class="text-right text-xs text-gray-500 mt-1 mr-1">Ready</div>
         </div>
     </header>
 
     <!-- MAIN CONTENT -->
     <div class="flex flex-1 overflow-hidden">
         
-        <!-- SIDEBAR: LIST OF DETECTED PLAYS -->
-        <div class="w-1/4 bg-gray-800 border-r border-gray-700 flex flex-col">
-            <div class="p-3 bg-gray-700 font-semibold text-sm uppercase tracking-wide">
-                Detected Plays <span id="playCount" class="bg-gray-900 px-2 rounded ml-2">0</span>
-            </div>
-            <div id="playList" class="flex-1 overflow-y-auto p-2 space-y-2">
-                <!-- Play Items injected here via JS -->
-                <div class="text-gray-500 text-center mt-10 text-sm">Upload a file to see plays.</div>
-            </div>
-        </div>
-
-        <!-- MAIN STAGE: PITCH VISUALIZER -->
-        <div class="flex-1 bg-gray-900 p-6 flex flex-col items-center justify-center relative">
-            
-            <div class="relative">
-                <!-- THE PITCH (SVG) -->
-                <svg id="pitchSvg" width="800" height="530" class="pitch rounded shadow-2xl">
-                    <!-- Center Line -->
-                    <line x1="400" y1="0" x2="400" y2="530" class="pitch-line" />
-                    <circle cx="400" cy="265" r="50" class="pitch-line" />
-                    <!-- Penalty Areas -->
-                    <rect x="0" y="130" width="120" height="270" class="pitch-line" />
-                    <rect x="680" y="130" width="120" height="270" class="pitch-line" />
-                </svg>
-
-                <!-- LEGEND -->
-                <div class="absolute top-4 right-4 bg-gray-900/80 p-3 rounded backdrop-blur">
-                    <div class="flex items-center mb-1">
-                        <span class="w-4 h-4 bg-blue-500 rounded-full mr-2"></span>
-                        <span class="text-sm">Input Play</span>
+        <!-- SIDEBAR -->
+        <div class="w-80 bg-gray-800 border-r border-gray-700 flex flex-col shadow-xl z-10">
+            <!-- FILTERS -->
+            <div class="p-4 border-b border-gray-700 bg-gray-800">
+                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Filters</h3>
+                <div class="mb-4">
+                    <label class="block text-xs text-gray-400 mb-1">Pass Sequence Length</label>
+                    <select id="lengthFilter" class="w-full bg-gray-700 text-white text-sm rounded p-2 border border-gray-600 focus:border-green-500 outline-none">
+                        <option value="all">All Lengths</option>
+                    </select>
+                </div>
+                <div>
+                    <div class="flex justify-between text-xs text-gray-400 mb-1">
+                        <label>Similarity Threshold (DTW)</label>
+                        <span id="scoreVal">Max: 500</span>
                     </div>
-                    <div class="flex items-center">
-                        <span class="w-4 h-4 bg-red-500 rounded-full mr-2"></span>
-                        <span class="text-sm">AI Match</span>
-                    </div>
+                    <input type="range" id="scoreFilter" min="0" max="1000" value="500" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-green-500">
                 </div>
             </div>
 
-            <div id="playInfo" class="mt-4 text-center">
-                <h2 class="text-2xl font-light">Select a play to visualize</h2>
-                <p class="text-gray-500 text-sm">The AI will overlay the most similar historical pattern.</p>
+            <!-- LIST HEADER -->
+            <div class="p-3 bg-gray-750 border-b border-gray-700 flex justify-between items-center">
+                <span class="text-xs font-semibold text-gray-300">DETECTED PLAYS</span>
+                <span id="playCount" class="bg-green-600 text-white text-xs px-2 py-0.5 rounded-full">0</span>
+            </div>
+
+            <!-- PLAY LIST -->
+            <div id="playList" class="flex-1 overflow-y-auto p-2 space-y-2">
+                <div class="text-gray-500 text-center mt-10 text-sm px-4">
+                    Upload a match file to detect and analyze tactical patterns.
+                </div>
+            </div>
+        </div>
+
+        <!-- MAIN STAGE -->
+        <div class="flex-1 bg-gray-900 p-6 flex flex-col items-center justify-center relative overflow-hidden">
+            
+            <div class="absolute inset-0 opacity-5 pointer-events-none" style="background-image: radial-gradient(#4b5563 1px, transparent 1px); background-size: 20px 20px;"></div>
+
+            <div class="flex gap-4 items-start w-full max-w-6xl justify-center">
+                
+                <!-- PITCH CONTAINER -->
+                <div class="relative z-0">
+                    <svg id="pitchSvg" width="800" height="530" class="pitch rounded-lg shadow-2xl">
+                        <rect x="0" y="0" width="800" height="530" fill="none" stroke="white" stroke-width="2"/>
+                        <line x1="400" y1="0" x2="400" y2="530" class="pitch-line" />
+                        <circle cx="400" cy="265" r="50" class="pitch-line" />
+                        <rect x="0" y="130" width="120" height="270" class="pitch-line" />
+                        <rect x="680" y="130" width="120" height="270" class="pitch-line" />
+                    </svg>
+
+                    <!-- LEGEND -->
+                    <div class="absolute top-4 right-4 bg-gray-900/90 p-3 rounded-lg border border-gray-700 shadow-xl backdrop-blur-sm">
+                        <div class="flex items-center mb-1">
+                            <span class="w-3 h-3 bg-blue-500 rounded-full mr-2"></span>
+                            <span class="text-xs font-medium">Input Play</span>
+                        </div>
+                        <div class="flex items-center">
+                            <span class="w-3 h-3 border-2 border-dashed border-red-500 rounded-full mr-2"></span>
+                            <span class="text-xs font-medium text-red-400">Match</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- NEW: DATA TABLE PANEL -->
+                <div id="dataPanel" class="w-64 bg-gray-800 rounded-lg border border-gray-700 shadow-xl overflow-hidden hidden">
+                    <div class="bg-gray-700 p-3 border-b border-gray-600 font-bold text-sm text-center">
+                        Play Metadata
+                    </div>
+                    <div class="p-0 overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-gray-750 text-xs uppercase text-gray-400">
+                                    <th class="p-2 border-b border-gray-600">Seq</th>
+                                    <th class="p-2 border-b border-gray-600">Role</th>
+                                    <th class="p-2 border-b border-gray-600">Jersey</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dataTableBody" class="text-xs font-mono">
+                                <!-- JS Populates this -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="p-2 text-[10px] text-gray-500 text-center bg-gray-750 border-t border-gray-600">
+                        Team ID: <span id="teamIdDisplay">-</span>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- INFO FOOTER -->
+            <div id="playInfo" class="mt-6 text-center h-20">
+                <h2 class="text-2xl font-light text-gray-300">Select a play to visualize</h2>
+                <p class="text-gray-500 text-sm mt-1">The AI will overlay the most geometrically similar historical pattern.</p>
             </div>
 
         </div>
@@ -88,59 +153,106 @@
         const playCount = document.getElementById('playCount');
         const pitchSvg = document.getElementById('pitchSvg');
         const playInfo = document.getElementById('playInfo');
+        const lengthFilter = document.getElementById('lengthFilter');
+        const scoreFilter = document.getElementById('scoreFilter');
+        const scoreVal = document.getElementById('scoreVal');
+        
+        // Data Table Elements
+        const dataPanel = document.getElementById('dataPanel');
+        const dataTableBody = document.getElementById('dataTableBody');
+        const teamIdDisplay = document.getElementById('teamIdDisplay');
 
-        let analysisData = null;
+        let allAnalysisData = [];
 
-        // HANDLE FILE UPLOAD
         fileInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
 
-            status.textContent = "Analyzing patterns...";
-            status.className = "ml-3 text-yellow-400 text-sm animate-pulse";
+            status.textContent = "Analyzing...";
+            status.className = "text-right text-xs text-yellow-400 mt-1 mr-1 animate-pulse";
 
             const formData = new FormData();
             formData.append('file', file);
 
             try {
-                // CALL LOCAL FASTAPI SERVER
-                const response = await fetch('http://127.0.0.1:8000/analyze_match', {
-                    method: 'POST',
-                    body: formData
-                });
-
+                const response = await fetch('http://127.0.0.1:8000/analyze_match', { method: 'POST', body: formData });
                 if (!response.ok) throw new Error("Server Error");
 
                 const data = await response.json();
-                analysisData = data.analysis_results;
+                allAnalysisData = data.analysis_results;
                 
-                status.textContent = "Analysis Complete";
-                status.className = "ml-3 text-green-400 text-sm";
-                renderPlayList(analysisData);
+                status.textContent = "Complete";
+                status.className = "text-right text-xs text-green-400 mt-1 mr-1";
+                populateLengthDropdown(allAnalysisData);
+                applyFilters();
 
             } catch (err) {
                 console.error(err);
-                status.textContent = "Error: Is server running?";
-                status.className = "ml-3 text-red-500 text-sm";
+                status.textContent = "Error";
+                status.className = "text-right text-xs text-red-500 mt-1 mr-1";
             }
         });
 
-        // RENDER SIDEBAR LIST
+        lengthFilter.addEventListener('change', applyFilters);
+        scoreFilter.addEventListener('input', (e) => {
+            scoreVal.textContent = `Max: ${e.target.value}`;
+            applyFilters();
+        });
+
+        function populateLengthDropdown(data) {
+            const lengths = new Set(data.map(p => p.length));
+            const sortedLengths = Array.from(lengths).sort((a, b) => a - b);
+            lengthFilter.innerHTML = '<option value="all">All Lengths</option>';
+            sortedLengths.forEach(len => {
+                const opt = document.createElement('option');
+                opt.value = len;
+                opt.textContent = `${len} Passes`;
+                lengthFilter.appendChild(opt);
+            });
+        }
+
+        function applyFilters() {
+            const selectedLen = lengthFilter.value;
+            const maxScore = parseInt(scoreFilter.value);
+            const filtered = allAnalysisData.filter(play => {
+                if (selectedLen !== 'all' && play.length != selectedLen) return false;
+                if (play.matches.length > 0) return play.matches[0].similarity_score <= maxScore;
+                return false;
+            });
+            renderPlayList(filtered);
+        }
+
         function renderPlayList(plays) {
             playList.innerHTML = '';
             playCount.textContent = plays.length;
 
+            if (plays.length === 0) {
+                playList.innerHTML = '<div class="text-gray-500 text-center mt-4 text-xs">No plays match filters</div>';
+                return;
+            }
+
             plays.forEach((play, index) => {
                 const div = document.createElement('div');
-                const bestScore = play.matches[0] ? play.matches[0].similarity_score.toFixed(1) : 'N/A';
+                const bestMatch = play.matches[0];
+                const bestScore = bestMatch ? bestMatch.similarity_score.toFixed(1) : 'N/A';
                 
-                div.className = "bg-gray-700 hover:bg-gray-600 p-3 rounded cursor-pointer transition border-l-4 border-transparent hover:border-blue-500";
+                let scoreColor = "text-gray-400";
+                if(bestMatch) {
+                    if (bestMatch.similarity_score < 50) scoreColor = "text-green-400 font-bold";
+                    else if (bestMatch.similarity_score < 150) scoreColor = "text-yellow-400";
+                    else scoreColor = "text-red-400";
+                }
+
+                div.className = "group bg-gray-750 hover:bg-gray-700 p-3 rounded-lg cursor-pointer transition-all border border-gray-700 hover:border-blue-500 mb-2 relative overflow-hidden";
                 div.innerHTML = `
-                    <div class="flex justify-between items-center">
-                        <span class="font-bold text-white">Play #${index + 1}</span>
-                        <span class="text-xs bg-gray-800 px-2 py-1 rounded text-gray-300">${play.length} Passes</span>
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="font-bold text-sm text-gray-200 group-hover:text-white">ID: ${play.uploaded_play_id.split('_')[1]}</span>
+                        <span class="text-[10px] bg-gray-800 border border-gray-600 px-2 py-0.5 rounded text-gray-300">${play.length} Passes</span>
                     </div>
-                    <div class="text-xs text-gray-400 mt-1">Best Match Score: <span class="text-green-400">${bestScore}</span></div>
+                    <div class="flex justify-between items-end">
+                         <div class="text-xs text-gray-400">DTW Score</div>
+                         <div class="text-sm ${scoreColor}">${bestScore}</div>
+                    </div>
                 `;
                 
                 div.onclick = () => loadPlayOnPitch(play, index);
@@ -148,70 +260,84 @@
             });
         }
 
-        // DRAW PLAY ON PITCH
         function loadPlayOnPitch(play, index) {
-            // clear previous lines (keep pitch markings)
             const dynamicElements = pitchSvg.querySelectorAll('.dynamic-draw');
             dynamicElements.forEach(el => el.remove());
 
+            const matchId = play.matches[0]?.match_play_id || 'None';
+            const score = play.matches[0]?.similarity_score.toFixed(2) || 'N/A';
+
             playInfo.innerHTML = `
-                <h2 class="text-2xl font-bold text-white">Play #${index + 1} vs Match</h2>
-                <p class="text-gray-400">Match ID: ${play.matches[0]?.match_play_id || 'None'}</p>
+                <h2 class="text-2xl font-bold text-white">Analysis Result</h2>
+                <div class="flex justify-center gap-6 mt-2">
+                    <div class="text-center"><div class="text-xs text-gray-500 uppercase">Input ID</div><div class="text-blue-400 font-mono">${play.uploaded_play_id}</div></div>
+                    <div class="text-center"><div class="text-xs text-gray-500 uppercase">Match ID</div><div class="text-red-400 font-mono">${matchId}</div></div>
+                    <div class="text-center"><div class="text-xs text-gray-500 uppercase">Similarity</div><div class="text-green-400 font-mono font-bold">${score}</div></div>
+                </div>
             `;
 
-            // 1. Draw Input (Blue)
-            drawTrajectory(play.input_trajectory, "blue", 4);
+            // Draw Lines
+            if(play.input_trajectory) drawTrajectory(play.input_trajectory, "blue", 4);
+            if (play.matches.length > 0) drawTrajectory(play.matches[0].match_trajectory, "red", 3, true);
 
-            // 2. Draw Match (Red)
-            if (play.matches.length > 0) {
-                drawTrajectory(play.matches[0].match_trajectory, "red", 2, true);
+            // Populate Table
+            if(play.input_metadata && play.input_metadata.length > 0) {
+                dataPanel.classList.remove('hidden');
+                dataTableBody.innerHTML = '';
+                teamIdDisplay.textContent = play.input_metadata[0].team || 'Unknown';
+
+                play.input_metadata.forEach((step, i) => {
+                    const tr = document.createElement('tr');
+                    tr.className = "border-b border-gray-700 hover:bg-gray-700";
+                    tr.innerHTML = `
+                        <td class="p-2 text-gray-400">${i+1}</td>
+                        <td class="p-2 text-blue-300">${step.role || 'N/A'}</td>
+                        <td class="p-2 font-bold">${step.jersey || '?'}</td>
+                    `;
+                    dataTableBody.appendChild(tr);
+                });
+            } else {
+                dataPanel.classList.add('hidden');
             }
         }
 
         function drawTrajectory(coords, color, width, isDash = false) {
-            // Coordinate Mapping: 
-            // Data is roughly -55 to 55 (X) and -35 to 35 (Y)
-            // SVG is 0 to 800 (X) and 0 to 530 (Y)
-            
-            const scaleX = 800 / 110; // Width / 110m
-            const scaleY = 530 / 70;  // Height / 70m
-            const offsetX = 400;      // Center X
-            const offsetY = 265;      // Center Y
+            const scaleX = 800 / 110; 
+            const scaleY = 530 / 70;  
+            const offsetX = 400;      
+            const offsetY = 265;      
 
-            // Create Path String
             let d = "";
+            const hexColor = color === "blue" ? "#3b82f6" : "#ef4444";
+
             coords.forEach((point, i) => {
-                // Invert Y because SVG y-axis is top-down, pitch data is usually bottom-up or centered
                 const x = (point[0] * scaleX) + offsetX; 
-                const y = (point[1] * -scaleY) + offsetY; // Flip Y for typical cartesian
+                const y = (point[1] * -scaleY) + offsetY; 
                 
                 if (i === 0) d += `M ${x} ${y}`;
                 else d += ` L ${x} ${y}`;
 
-                // Draw Dot at start
                 if (i === 0) {
                     const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-                    circle.setAttribute("cx", x);
-                    circle.setAttribute("cy", y);
-                    circle.setAttribute("r", 5);
-                    circle.setAttribute("fill", color);
-                    circle.setAttribute("class", "dynamic-draw");
+                    circle.setAttribute("cx", x); circle.setAttribute("cy", y); circle.setAttribute("r", 4);
+                    circle.setAttribute("fill", hexColor); circle.setAttribute("class", "dynamic-draw");
+                    pitchSvg.appendChild(circle);
+                }
+                if (i === coords.length - 1) {
+                    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                    circle.setAttribute("cx", x); circle.setAttribute("cy", y); circle.setAttribute("r", 3);
+                    circle.setAttribute("fill", hexColor); circle.setAttribute("class", "dynamic-draw");
                     pitchSvg.appendChild(circle);
                 }
             });
 
-            // Draw Path
             const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-            path.setAttribute("d", d);
-            path.setAttribute("stroke", color === "blue" ? "#3b82f6" : "#ef4444");
-            path.setAttribute("stroke-width", width);
-            path.setAttribute("fill", "none");
+            path.setAttribute("d", d); path.setAttribute("stroke", hexColor);
+            path.setAttribute("stroke-width", width); path.setAttribute("fill", "none");
             path.setAttribute("class", "dynamic-draw");
-            if (isDash) path.setAttribute("stroke-dasharray", "5,5"); // Dashed line for match
-            
+            if (isDash) path.setAttribute("stroke-dasharray", "8,4"); 
             pitchSvg.appendChild(path);
         }
-
     </script>
 </body>
 </html>

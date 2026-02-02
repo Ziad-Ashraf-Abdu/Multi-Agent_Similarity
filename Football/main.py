@@ -10,16 +10,15 @@ from fastdtw import fastdtw
 
 app = FastAPI(title="Sports Pattern Matching Server")
 
-# ENABLE CORS (So your website can talk to this local server)
+# ENABLE CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# GLOBAL DATABASE CACHE
 PLAY_DATABASE = {}
 DATA_FOLDER = "processed_datasets"
 
@@ -46,12 +45,11 @@ async def load_database():
             
     print(f"Server Ready. Loaded {count} plays.")
 
-# --- HELPER: PARSE UPLOADED FILE ---
+# --- UPDATED HELPER: PARSE UPLOADED FILE WITH METADATA ---
 def parse_uploaded_json_content(json_content):
     extracted_plays = []
     try:
         events = json.loads(json_content)
-        # Normalize sorting
         events.sort(key=lambda x: (
             x.get('sequence') if x.get('sequence') is not None else 0, 
             x.get('eventTime') if x.get('eventTime') is not None else 0
@@ -59,6 +57,8 @@ def parse_uploaded_json_content(json_content):
         
         current_team_id = None
         current_sequence = []
+        # UPDATED: We now store metadata objects, not just [x, y]
+        current_metadata = [] 
         last_event_time = -999
 
         for event in events:
@@ -77,10 +77,12 @@ def parse_uploaded_json_content(json_content):
                 if len(current_sequence) >= 2:
                     extracted_plays.append({
                         'trajectory': current_sequence,
+                        'metadata': current_metadata, # Store player details
                         'length': len(current_sequence),
                         'play_id_local': f"upload_{len(extracted_plays)}"
                     })
                 current_sequence = []
+                current_metadata = []
                 current_team_id = team_id
             
             if event_time > 0: last_event_time = event_time
@@ -91,19 +93,35 @@ def parse_uploaded_json_content(json_content):
 
             if is_pass:
                 coords = None
+                p_info = {'id': player_id, 'team': team_id} # Default info
+                
+                # Search Home
                 if 'homePlayers' in event:
                     for p in event['homePlayers']:
-                        if p['playerId'] == player_id: coords = [p['x'], p['y']]; break
-                        if coords is None: coords = [p['x'], p['y']]
+                        if p['playerId'] == player_id: 
+                            coords = [p['x'], p['y']]
+                            p_info = {'id': p['playerId'], 'team': team_id, 'role': p.get('positionGroupType', 'N/A'), 'jersey': p.get('jerseyNum', '?')}
+                            break
+                        if coords is None: coords = [p['x'], p['y']] # Fallback
+                
+                # Search Away
                 if not coords and 'awayPlayers' in event:
                     for p in event['awayPlayers']:
-                        if p['playerId'] == player_id: coords = [p['x'], p['y']]; break
+                        if p['playerId'] == player_id: 
+                            coords = [p['x'], p['y']]
+                            p_info = {'id': p['playerId'], 'team': team_id, 'role': p.get('positionGroupType', 'N/A'), 'jersey': p.get('jerseyNum', '?')}
+                            break
                         if coords is None: coords = [p['x'], p['y']]
-                if coords: current_sequence.append(coords)
+
+                if coords: 
+                    current_sequence.append(coords)
+                    current_metadata.append(p_info)
                 
+        # Flush last
         if len(current_sequence) >= 2:
              extracted_plays.append({
                 'trajectory': current_sequence,
+                'metadata': current_metadata,
                 'length': len(current_sequence),
                 'play_id_local': f"upload_{len(extracted_plays)}"
             })
@@ -114,7 +132,6 @@ def parse_uploaded_json_content(json_content):
         
     return extracted_plays
 
-# --- ENDPOINT ---
 @app.post("/analyze_match")
 async def analyze_match(file: UploadFile = File(...)):
     content = await file.read()
@@ -135,14 +152,25 @@ async def analyze_match(file: UploadFile = File(...)):
         if candidates:
             play_scores = []
             for db_play in candidates:
-                db_traj = np.array(db_play['trajectory'])
-                dist, _ = fastdtw(q_traj, db_traj, dist=euclidean)
+                # Handle legacy data (some stored files might not have full metadata structure yet)
+                # If 'trajectory' is just coords, we use it. If it's objects, we extract coords.
+                raw_traj = db_play['trajectory']
+                
+                # Check if data is new format (dict) or old format (list of coords)
+                # We assume old format for the DB files unless you regenerated them.
+                # To be safe, we just use the coords for calculation.
+                if len(raw_traj) > 0 and isinstance(raw_traj[0], dict):
+                     # This handles if you regenerate DB with metadata later
+                     db_coords = np.array([[p['x'], p['y']] for p in raw_traj])
+                else:
+                     db_coords = np.array(raw_traj)
+
+                dist, _ = fastdtw(q_traj, db_coords, dist=euclidean)
                 
                 play_scores.append({
                     "match_play_id": db_play['play_id'],
                     "similarity_score": dist,
-                    # IMPORTANT: Returning the coordinates so frontend can draw them
-                    "match_trajectory": db_play['trajectory'] 
+                    "match_trajectory": raw_traj 
                 })
             
             play_scores.sort(key=lambda x: x['similarity_score'])
@@ -151,7 +179,8 @@ async def analyze_match(file: UploadFile = File(...)):
         results.append({
             "uploaded_play_id": query_play['play_id_local'],
             "length": length,
-            "input_trajectory": query_play['trajectory'], # Return input coords too
+            "input_trajectory": query_play['trajectory'],
+            "input_metadata": query_play['metadata'], # Sending Player Data back
             "matches": best_matches
         })
         
