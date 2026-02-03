@@ -51,7 +51,18 @@
         <div class="w-80 bg-gray-800 border-r border-gray-700 flex flex-col shadow-xl z-10">
             <!-- FILTERS -->
             <div class="p-4 border-b border-gray-700 bg-gray-800">
-                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Filters</h3>
+                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Settings</h3>
+
+                <!-- MATCH MODE TOGGLE -->
+                <div class="mb-4">
+                    <label class="block text-xs text-gray-400 mb-1">Match Strategy</label>
+                    <select id="matchMode" class="w-full bg-gray-700 text-white text-sm rounded p-2 border border-gray-600 focus:border-green-500 outline-none">
+                        <option value="absolute">Absolute Location (Strict)</option>
+                        <option value="relative">Shape Only (Translation Invariant)</option>
+                    </select>
+                    <p class="text-[10px] text-gray-500 mt-1">Re-upload file to apply strategy change.</p>
+                </div>
+
                 <div class="mb-4">
                     <label class="block text-xs text-gray-400 mb-1">Pass Sequence Length</label>
                     <select id="lengthFilter" class="w-full bg-gray-700 text-white text-sm rounded p-2 border border-gray-600 focus:border-green-500 outline-none">
@@ -83,11 +94,11 @@
 
         <!-- MAIN STAGE -->
         <div class="flex-1 bg-gray-900 p-6 flex flex-col items-center justify-center relative overflow-hidden">
-            
+
             <div class="absolute inset-0 opacity-5 pointer-events-none" style="background-image: radial-gradient(#4b5563 1px, transparent 1px); background-size: 20px 20px;"></div>
 
             <div class="flex gap-4 items-start w-full max-w-6xl justify-center">
-                
+
                 <!-- PITCH CONTAINER -->
                 <div class="relative z-0">
                     <svg id="pitchSvg" width="800" height="530" class="pitch rounded-lg shadow-2xl">
@@ -112,26 +123,23 @@
                 </div>
 
                 <!-- NEW: DATA TABLE PANEL -->
-                <div id="dataPanel" class="w-64 bg-gray-800 rounded-lg border border-gray-700 shadow-xl overflow-hidden hidden">
+                <div id="dataPanel" class="w-80 bg-gray-800 rounded-lg border border-gray-700 shadow-xl overflow-hidden hidden">
                     <div class="bg-gray-700 p-3 border-b border-gray-600 font-bold text-sm text-center">
-                        Play Metadata
+                        Input Play Metadata
                     </div>
-                    <div class="p-0 overflow-x-auto">
+                    <div class="p-0 overflow-x-auto max-h-96">
                         <table class="w-full text-left border-collapse">
                             <thead>
                                 <tr class="bg-gray-750 text-xs uppercase text-gray-400">
-                                    <th class="p-2 border-b border-gray-600">Seq</th>
-                                    <th class="p-2 border-b border-gray-600">Role</th>
-                                    <th class="p-2 border-b border-gray-600">Jersey</th>
+                                    <th class="p-2 border-b border-gray-600">#</th>
+                                    <th class="p-2 border-b border-gray-600">Player</th>
+                                    <th class="p-2 border-b border-gray-600">Team</th>
                                 </tr>
                             </thead>
                             <tbody id="dataTableBody" class="text-xs font-mono">
                                 <!-- JS Populates this -->
                             </tbody>
                         </table>
-                    </div>
-                    <div class="p-2 text-[10px] text-gray-500 text-center bg-gray-750 border-t border-gray-600">
-                        Team ID: <span id="teamIdDisplay">-</span>
                     </div>
                 </div>
 
@@ -156,23 +164,21 @@
         const lengthFilter = document.getElementById('lengthFilter');
         const scoreFilter = document.getElementById('scoreFilter');
         const scoreVal = document.getElementById('scoreVal');
-        
+        const matchMode = document.getElementById('matchMode');
+
         // Data Table Elements
         const dataPanel = document.getElementById('dataPanel');
         const dataTableBody = document.getElementById('dataTableBody');
-        const teamIdDisplay = document.getElementById('teamIdDisplay');
 
         let allAnalysisData = [];
 
-        fileInput.addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-
+        async function analyzeFile(file) {
             status.textContent = "Analyzing...";
             status.className = "text-right text-xs text-yellow-400 mt-1 mr-1 animate-pulse";
 
             const formData = new FormData();
             formData.append('file', file);
+            formData.append('match_mode', matchMode.value);
 
             try {
                 const response = await fetch('http://127.0.0.1:8000/analyze_match', { method: 'POST', body: formData });
@@ -180,7 +186,7 @@
 
                 const data = await response.json();
                 allAnalysisData = data.analysis_results;
-                
+
                 status.textContent = "Complete";
                 status.className = "text-right text-xs text-green-400 mt-1 mr-1";
                 populateLengthDropdown(allAnalysisData);
@@ -191,6 +197,17 @@
                 status.textContent = "Error";
                 status.className = "text-right text-xs text-red-500 mt-1 mr-1";
             }
+        }
+
+        // Trigger analysis on file select OR on mode change if file exists
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) analyzeFile(file);
+        });
+
+        matchMode.addEventListener('change', () => {
+            const file = fileInput.files[0];
+            if (file) analyzeFile(file);
         });
 
         lengthFilter.addEventListener('change', applyFilters);
@@ -235,7 +252,7 @@
                 const div = document.createElement('div');
                 const bestMatch = play.matches[0];
                 const bestScore = bestMatch ? bestMatch.similarity_score.toFixed(1) : 'N/A';
-                
+
                 let scoreColor = "text-gray-400";
                 if(bestMatch) {
                     if (bestMatch.similarity_score < 50) scoreColor = "text-green-400 font-bold";
@@ -254,7 +271,7 @@
                          <div class="text-sm ${scoreColor}">${bestScore}</div>
                     </div>
                 `;
-                
+
                 div.onclick = () => loadPlayOnPitch(play, index);
                 playList.appendChild(div);
             });
@@ -284,15 +301,14 @@
             if(play.input_metadata && play.input_metadata.length > 0) {
                 dataPanel.classList.remove('hidden');
                 dataTableBody.innerHTML = '';
-                teamIdDisplay.textContent = play.input_metadata[0].team || 'Unknown';
 
                 play.input_metadata.forEach((step, i) => {
                     const tr = document.createElement('tr');
                     tr.className = "border-b border-gray-700 hover:bg-gray-700";
                     tr.innerHTML = `
                         <td class="p-2 text-gray-400">${i+1}</td>
-                        <td class="p-2 text-blue-300">${step.role || 'N/A'}</td>
-                        <td class="p-2 font-bold">${step.jersey || '?'}</td>
+                        <td class="p-2 font-bold text-white">${step.player || 'Unknown'}</td>
+                        <td class="p-2 text-gray-300 truncate max-w-[80px]">${step.team || '-'}</td>
                     `;
                     dataTableBody.appendChild(tr);
                 });
