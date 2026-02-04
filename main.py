@@ -14,7 +14,7 @@ DATABASE_FILE = "melody_database.json"
 SONGS_FOLDER = "songs"
 # ===========================
 
-# Initialize session state
+# Initialize session state (ADD upload_key for file uploader reset)
 if 'database' not in st.session_state:
     st.session_state.database = None
 if 'processing' not in st.session_state:
@@ -27,7 +27,8 @@ if 'recorded_audio' not in st.session_state:
     st.session_state.recorded_audio = None
 if 'query_seq' not in st.session_state:
     st.session_state.query_seq = None
-
+if 'upload_key' not in st.session_state:  # CRITICAL FIX #1
+    st.session_state.upload_key = 0
 
 @st.cache_resource
 def load_database():
@@ -40,7 +41,6 @@ def load_database():
             st.error(f"Error loading database: {str(e)}")
             return None
     return None
-
 
 def extract_hum_pitch(y, sr):
     """Extract pitch contour from humming audio"""
@@ -72,7 +72,6 @@ def extract_hum_pitch(y, sr):
 
     return midi_normalized
 
-
 def get_top_matches_subsequence(hum_path, top_n=2):
     """Find best matching song segments with subsequence DTW"""
     y, sr = librosa.load(hum_path, mono=True)
@@ -84,7 +83,6 @@ def get_top_matches_subsequence(hum_path, top_n=2):
     if query_seq is None:
         raise Exception("No valid pitch detected (too quiet/noisy/short)")
 
-    # Downsample query for speed
     query_seq = query_seq[::10]
     if len(query_seq) < 5:
         raise Exception("Hum too short for reliable matching (need ≥5 distinct notes)")
@@ -102,7 +100,6 @@ def get_top_matches_subsequence(hum_path, top_n=2):
         min_window = max(5, int(query_len * 0.8))
         step = max(1, min_window // 4)
 
-        # Sliding window to find best subsequence
         for start in range(0, len(ref_seq) - min_window + 1, step):
             end = min(start + min_window, len(ref_seq))
             segment = ref_seq_reshaped[start:end]
@@ -115,7 +112,6 @@ def get_top_matches_subsequence(hum_path, top_n=2):
 
             if normalized_dist < min_dist:
                 min_dist = normalized_dist
-                # Store the actual 1D segment for plotting
                 best_segment = ref_seq[start:end]
 
         clean_name = (song_name.replace("vocals.wav", "")
@@ -132,7 +128,6 @@ def get_top_matches_subsequence(hum_path, top_n=2):
 
     results.sort(key=lambda x: x["score"])
     return query_seq, results[:top_n]
-
 
 def process_audio_bytes(audio_bytes):
     """Process raw audio bytes"""
@@ -154,10 +149,8 @@ def process_audio_bytes(audio_bytes):
         if 'tmp_path' in locals() and os.path.exists(tmp_path):
             os.unlink(tmp_path)
 
-
 # ====== STREAMLIT UI ======
 st.set_page_config(page_title="Hum2Song Recognizer", page_icon="🎵", layout="wide")
-
 st.title("🎵 Hum to Song Recognizer")
 st.markdown("Hum a tune or upload audio to find matching songs!")
 
@@ -168,7 +161,8 @@ if st.session_state.database is None:
 
 if not st.session_state.database:
     st.error(f"""
-    **Database not found!** 1. Run `processor.py` to build `{DATABASE_FILE}`  
+    **Database not found!**  
+    1. Run `processor.py` to build `{DATABASE_FILE}`  
     2. Place vocal files in `{SONGS_FOLDER}/` folder
     """)
     st.stop()
@@ -187,17 +181,20 @@ with col_input:
         try:
             from streamlit_mic_recorder import mic_recorder
 
-            audio = mic_recorder(
-                start_prompt="⏺️ Start Recording",
-                stop_prompt="⏹️ Stop Recording",
-                format="wav",
-                key='my_recorder'
-            )
+            # CRITICAL FIX #2: Only show recorder when NO recording exists
+            if st.session_state.recorded_audio is None:
+                audio = mic_recorder(
+                    start_prompt="⏺️ Start Recording",
+                    stop_prompt="⏹️ Stop Recording",
+                    format="wav",
+                    key=f'my_recorder_{st.session_state.upload_key}'  # Unique key per session
+                )
 
-            if audio and audio.get('bytes') and st.session_state.recorded_audio is None:
-                st.session_state.recorded_audio = audio['bytes']
-                st.rerun()
+                if audio and audio.get('bytes'):
+                    st.session_state.recorded_audio = audio['bytes']
+                    st.rerun()
 
+            # Show player/buttons ONLY when recording exists
             if st.session_state.recorded_audio is not None:
                 st.audio(st.session_state.recorded_audio, format="audio/wav")
 
@@ -215,17 +212,26 @@ with col_input:
                             except Exception as e:
                                 st.error(f"❌ {str(e)}")
                 with c2:
-                    if st.button("🗑️ Clear", use_container_width=True):
+                    if st.button("🗑️ Clear Recording", use_container_width=True):
+                        # CRITICAL FIX #3: Complete state reset
                         st.session_state.recorded_audio = None
-                        st.session_state.results = None
                         st.session_state.query_seq = None
-                        st.rerun()
+                        st.session_state.results = None
+                        st.session_state.duration = 0.0
+                        st.rerun()  # Force UI refresh to show recorder again
 
         except ImportError:
-            st.error("Microphone library missing. pip install streamlit-mic-recorder")
+            st.error("Microphone library missing. Run: `pip install streamlit-mic-recorder==0.2.0`")
 
     with tab_upload:
-        uploaded_file = st.file_uploader("Upload WAV/MP3", type=["wav", "mp3"], label_visibility="collapsed")
+        # CRITICAL FIX #4: Dynamic key to reset file uploader
+        uploaded_file = st.file_uploader(
+            "Upload WAV/MP3", 
+            type=["wav", "mp3"], 
+            label_visibility="collapsed",
+            key=f"uploader_{st.session_state.upload_key}"  # Changes key on reset
+        )
+        
         if uploaded_file:
             st.audio(uploaded_file, format="audio/wav")
             if st.button("🔍 Recognize File", type="primary", disabled=st.session_state.processing,
@@ -239,28 +245,36 @@ with col_input:
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ {str(e)}")
+        
+        # Add explicit clear button for uploads
+        if st.button("🗑️ Clear Upload", use_container_width=True):
+            # CRITICAL FIX #5: Increment key to force widget reset + clear state
+            st.session_state.upload_key += 1
+            st.session_state.query_seq = None
+            st.session_state.results = None
+            st.session_state.duration = 0.0
+            st.rerun()
 
 with col_tips:
     with st.expander("💡 Tips for Best Results", expanded=True):
         st.markdown("""
-        - ✅ Hum **10-30 seconds** of the most recognizable part.
-        - ✅ Hum with **clear pitch changes** (avoid monotone).
-        - ✅ System is key-invariant (you can be off-key!).
+        - ✅ Hum **10-30 seconds** of the most recognizable part (chorus works best)
+        - ✅ Hum with **clear pitch changes** (avoid monotone/whispering)
+        - ✅ System is **key-invariant** (works even if you're off-key!)
+        - ✅ Record in a **quiet room** away from background noise
         """)
 
 st.divider()
 
 # ====== VISUALIZATION & RESULTS SECTION ======
 if st.session_state.results and st.session_state.query_seq is not None:
-
-    # --- 1. TOP MATCHES SECTION (NOW ON TOP) ---
     st.subheader("2. Top Matches")
 
     res_col1, res_col2 = st.columns(2)
-
     for i, match in enumerate(st.session_state.results):
         score = match["score"]
-        confidence = max(0, min(100, int(100 - score * 15)))
+        # FIXED CONFIDENCE CALCULATION (no negative values)
+        confidence = max(0, min(100, int(100 - min(score, 6.66) * 15)))
 
         if score < 5.0:
             badge = "✅ HIGH MATCH"
@@ -273,7 +287,6 @@ if st.session_state.results and st.session_state.query_seq is not None:
             color = "#EF5350"
 
         target_col = res_col1 if i == 0 else res_col2
-
         with target_col:
             st.markdown(f"""
             <div style="background-color: {color}10; padding: 20px; border-radius: 12px; border: 1px solid {color}40; height: 100%;">
@@ -294,18 +307,14 @@ if st.session_state.results and st.session_state.query_seq is not None:
             """, unsafe_allow_html=True)
 
     st.caption(f"⏱️ Analysis took: {st.session_state.duration:.2f}s")
+    st.write("")
 
-    st.write("")  # Spacer
-
-    # --- 2. PLOTLY CHART SECTION (FOLDABLE) ---
+    # Plotly chart in expander
     with st.expander("📈 View Technical Analysis (Melody Alignment)", expanded=False):
-
         user_seq = st.session_state.query_seq
         user_seq_norm = user_seq - np.mean(user_seq)
 
         fig = go.Figure()
-
-        # Trace 1: User's Hum
         fig.add_trace(go.Scatter(
             y=user_seq_norm,
             mode='lines',
@@ -314,15 +323,11 @@ if st.session_state.results and st.session_state.query_seq is not None:
             opacity=0.9
         ))
 
-        # Trace 2 & 3: Top Matches
-        colors = ['#4CAF50', '#FFA726']  # Green, Orange
-
+        colors = ['#4CAF50', '#FFA726']
         for i, match in enumerate(st.session_state.results[:2]):
             segment = match['segment']
             if len(segment) > 0:
-                # Normalize segment for visual comparison
                 seg_norm = segment - np.mean(segment)
-
                 fig.add_trace(go.Scatter(
                     y=seg_norm,
                     mode='lines',
@@ -331,26 +336,31 @@ if st.session_state.results and st.session_state.query_seq is not None:
                     opacity=0.8
                 ))
 
-        # Layout Customization
         fig.update_layout(
             title="Normalized Pitch Contour Comparison",
             xaxis_title="Time Steps (Normalized)",
             yaxis_title="Relative Pitch (Semitone Offset)",
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
-            ),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
             hovermode="x unified",
             margin=dict(l=20, r=20, t=60, b=20),
             height=400,
-            plot_bgcolor='rgba(0,0,0,0)',  # Transparent background
-            paper_bgcolor='rgba(0,0,0,0)'  # Transparent paper
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)'
         )
-
         fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128, 128, 128, 0.2)')
         fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128, 128, 128, 0.2)')
 
         st.plotly_chart(fig, use_container_width=True)
+
+# ====== MASTER RESET BUTTON (Optional but helpful) ======
+st.divider()
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    if st.button("🔄 Clear Everything & Start Over", use_container_width=True):
+        # COMPLETE STATE RESET
+        st.session_state.recorded_audio = None
+        st.session_state.query_seq = None
+        st.session_state.results = None
+        st.session_state.duration = 0.0
+        st.session_state.upload_key += 1  # Force file uploader reset
+        st.rerun()
